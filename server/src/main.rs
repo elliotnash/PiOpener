@@ -8,7 +8,7 @@ const OPEN_LIMIT_PIN: u8 = 24;
 
 const COUPLER_PIN: u8 = 25;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum DoorState {
     Closed,
     MovingUp,
@@ -46,9 +46,9 @@ fn main() -> Result<(), Error> {
             last_state
         };
 
-        println!("Close limit: {}, open limit: {}", close_triggered, open_triggered);
+        println!("Door state: {:?}, Close limit: {}, open limit: {}", state, close_triggered, open_triggered);
 
         last_state = state;
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
     }
 }
