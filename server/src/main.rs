@@ -46,6 +46,8 @@ fn main() -> Result<(), Error> {
             last_state
         };
 
+        println!("Close limit: {}, open limit: {}", close_triggered, open_triggered);
+
         last_state = state;
         thread::sleep(Duration::from_millis(50));
     }
