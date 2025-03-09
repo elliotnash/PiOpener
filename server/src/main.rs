@@ -10,29 +10,12 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
-use serde::{Serialize, Deserialize};
-use config::Config;
+use serde::Serialize;
 use embedded_hal::digital::{InputPin, OutputPin};
+use config::AppConfig;
+
 mod gpio;
-
-
-#[derive(Debug, Deserialize, Clone)]
-struct AppConfig {
-    garage_door: GarageDoorConfig,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-struct GarageDoorConfig {
-    close_limit_pin: u8,
-    open_limit_pin: u8,
-    coupler_pin: u8,
-    poll_interval_ms: u64,
-    expected_shut_time_sec: u64,
-    shut_time_buffer_sec: u64,
-    coupler_duration_ms: u64,
-    server_address: String,
-    api_key: String,
-}
+mod config;
 
 // State tracking and GPIO command enums
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,10 +92,7 @@ where
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Load configuration
-    let config = Config::builder()
-        .add_source(config::File::with_name("config"))
-        .build()?
-        .try_deserialize::<AppConfig>()?;
+    let config = config::load_config()?;
 
     // Convert config durations
     let poll_interval = Duration::from_millis(config.garage_door.poll_interval_ms);
