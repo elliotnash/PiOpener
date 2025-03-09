@@ -1,0 +1,9 @@
+[garage_door]
+close_limit_pin = 23
+open_limit_pin = 24
+coupler_pin = 25
+poll_interval_ms = 50
+expected_shut_time_sec = 18
+coupler_duration_ms = 100
+server_address = "0.0.0.0:3000"
+api_key = "your_secure_api_key_here"
