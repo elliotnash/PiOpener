@@ -146,7 +146,7 @@ fn monitor_gpio(
             );
 
             if new_state != last_state {
-                state_tx.send(new_state).expect("Failed to send state");
+                state_tx.send_replace(new_state);
                 last_state = new_state;
             }
 
