@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rppal = "0.22.1"
 axum = "0.8.1"
 axum-extra = { version = "0.10.0", features = ["typed-header"] }
 tokio = { version = "1.44.0", features = ["macros", "rt-multi-thread"] }
@@ -12,3 +11,10 @@ async-stream = "0.3.6"
 futures = "0.3.31"
 serde = { version = "1.0.218", features = ["derive"] }
 config = "0.15.9"
+embedded-hal = "1.0.0"
+
+rppal = { version = "0.22.1", features = ["hal"], optional = true }
+
+[features]
+default = []
+raspberry_pi = ["rppal"]

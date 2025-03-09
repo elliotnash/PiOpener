@@ -4,7 +4,6 @@ use axum::{
 use axum_extra::{headers::{authorization::Bearer, Authorization}, TypedHeader};
 use std::sync::{Arc, Mutex};
 use futures::stream::Stream;
-use rppal::gpio::{Gpio, InputPin, OutputPin};
 use std::{
     error::Error,
     thread,
@@ -13,6 +12,8 @@ use std::{
 use tokio::sync::watch;
 use serde::{Serialize, Deserialize};
 use config::Config;
+use embedded_hal::digital::{InputPin, OutputPin};
+mod gpio;
 
 
 #[derive(Debug, Deserialize, Clone)]
@@ -27,6 +28,7 @@ struct GarageDoorConfig {
     coupler_pin: u8,
     poll_interval_ms: u64,
     expected_shut_time_sec: u64,
+    shut_time_buffer_sec: u64,
     coupler_duration_ms: u64,
     server_address: String,
     api_key: String,
@@ -105,16 +107,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build()?
         .try_deserialize::<AppConfig>()?;
 
-    // Initialize GPIO components with config values
-    let gpio = Gpio::new()?;
-    let close_limit_switch = gpio.get(config.garage_door.close_limit_pin)?.into_input();
-    let open_limit_switch = gpio.get(config.garage_door.open_limit_pin)?.into_input();
-    let coupler = gpio.get(config.garage_door.coupler_pin)?.into_output_low();
-
     // Convert config durations
     let poll_interval = Duration::from_millis(config.garage_door.poll_interval_ms);
     let expected_shut_time = Duration::from_secs(config.garage_door.expected_shut_time_sec);
+    let shut_time_buffer = Duration::from_secs(config.garage_door.shut_time_buffer_sec);
     let coupler_duration = Duration::from_millis(config.garage_door.coupler_duration_ms);
+
+    // Initialize GPIO components with config values
+    let (close_limit_switch, open_limit_switch, coupler) = gpio::create_pins(
+        config.garage_door.close_limit_pin,
+        config.garage_door.open_limit_pin,
+        config.garage_door.coupler_pin,
+        poll_interval,
+        expected_shut_time
+    )?;
 
     // Create communication channels
     let (door_state_tx, _) = watch::channel(DoorState::Unknown);
@@ -130,7 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         door_state_tx,
         app_state.latest_command.clone(),
         poll_interval,
-        expected_shut_time,
+        expected_shut_time + shut_time_buffer,
         coupler_duration
     );
 
@@ -149,16 +155,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 // GPIO monitoring and control thread
-fn monitor_gpio(
-    close_limit: InputPin,
-    open_limit: InputPin,
-    mut coupler: OutputPin,
+// Modify monitor_gpio to use generic types
+fn monitor_gpio<I1, I2, O>(
+    mut close_limit: I1,
+    mut open_limit: I2,
+    mut coupler: O,
     state_tx: watch::Sender<DoorState>,
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
     poll_interval: Duration,
     expected_shut_time: Duration,
     coupler_duration: Duration,
-) {
+) where
+    I1: InputPin + Send + 'static,
+    I2: InputPin + Send + 'static,
+    O: OutputPin + Send + 'static,
+{
     thread::spawn(move || {
         let mut last_state = DoorState::Unknown;
         let mut last_known = Instant::now();
@@ -177,7 +188,7 @@ fn monitor_gpio(
                     };
 
                     if should_activate {
-                        coupler.set_high();
+                        let _ = coupler.set_high();
                         coupler_active = true;
                         coupler_start = Instant::now();
                     }
@@ -186,8 +197,8 @@ fn monitor_gpio(
 
             // Update door state with timing consideration
             let now = Instant::now();
-            let close_triggered = close_limit.is_low();
-            let open_triggered = open_limit.is_low();
+            let close_triggered = close_limit.is_low().unwrap_or(false);
+            let open_triggered = open_limit.is_low().unwrap_or(false);
 
             let new_state = calculate_state(
                 close_triggered,
@@ -205,7 +216,7 @@ fn monitor_gpio(
 
             // Manage coupler timing
             if coupler_active && now.duration_since(coupler_start) >= coupler_duration {
-                coupler.set_low();
+                let _ = coupler.set_low();
                 coupler_active = false;
             }
 
