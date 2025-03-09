@@ -70,9 +70,9 @@ impl DoorState {
     }
 }
 
-struct ApiKey(String);
+struct Authenticated;
 
-impl<S> FromRequestParts<S> for ApiKey
+impl<S> FromRequestParts<S> for Authenticated
 where
     S: Send + Sync,
 {
@@ -93,7 +93,7 @@ where
             return Err((StatusCode::UNAUTHORIZED, "Invalid API key").into_response());
         }
 
-        Ok(ApiKey(bearer.token().to_string()))
+        Ok(Authenticated)
     }
 }
 
@@ -249,7 +249,7 @@ fn calculate_state(
 
 // Axum handlers
 async fn status_handler(
-    _: ApiKey,
+    _: Authenticated,
     State(app_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
     let mut rx = app_state.door_state.subscribe();
@@ -272,21 +272,21 @@ struct DoorResponse {
 }
 
 async fn toggle_door(
-    _: ApiKey,
+    _: Authenticated,
     State(app_state): State<AppState>,
 ) -> (StatusCode, Json<DoorResponse>) {
     store_command(app_state.latest_command, GpioCommand::Toggle)
 }
 
 async fn open_door(
-    _: ApiKey,
+    _: Authenticated,
     State(app_state): State<AppState>,
 ) -> (StatusCode, Json<DoorResponse>) {
     store_command(app_state.latest_command, GpioCommand::Open)
 }
 
 async fn close_door(
-    _: ApiKey,
+    _: Authenticated,
     State(app_state): State<AppState>,
 ) -> (StatusCode, Json<DoorResponse>) {
     store_command(app_state.latest_command, GpioCommand::Close)
