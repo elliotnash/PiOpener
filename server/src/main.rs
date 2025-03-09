@@ -130,7 +130,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let app = Router::new()
-        .route("/status", get(status_handler))
+        .route("/watch-status", get(watch_status_handler))
+        .route("/status", get(current_status_handler))
         .route("/toggle", post(toggle_door))
         .route("/open", post(open_door))
         .route("/close", post(close_door))
@@ -254,22 +255,37 @@ fn calculate_state(
     }
 }
 
+#[derive(Serialize)]
+struct StatusResponse {
+    status: &'static str,
+}
+
 // Axum handlers
-async fn status_handler(
+async fn watch_status_handler(
     _: Authenticated,
     State(app_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, axum::Error>>> {
     let mut rx = app_state.door_state.subscribe();
     let stream = async_stream::try_stream! {
         let initial = *rx.borrow();
-        yield Event::default().data(initial.value());
+        yield Event::default().json_data(StatusResponse { status: initial.value() }).unwrap();
 
         while let Ok(()) = rx.changed().await {
             let current = *rx.borrow();
-            yield Event::default().data(current.value());
+            yield Event::default().json_data(StatusResponse { status: current.value() }).unwrap();
         }
     };
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+}
+
+// Handler to get current door status without streaming
+async fn current_status_handler(
+    _: Authenticated,
+    State(app_state): State<AppState>,
+) -> Json<StatusResponse> {
+    let rx = app_state.door_state.subscribe();
+    let current = *rx.borrow();
+    Json(StatusResponse { status: current.value() })
 }
 
 #[derive(Serialize)]
