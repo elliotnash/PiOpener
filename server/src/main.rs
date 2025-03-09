@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let app = Router::new()
-        .route("/sse", get(status_handler))
+        .route("/status", get(status_handler))
         .route("/toggle", post(toggle_door))
         .route("/open", post(open_door))
         .route("/close", post(close_door))
