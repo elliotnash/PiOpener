@@ -52,11 +52,18 @@ enum GpioCommand {
     Close,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CommandStatus {
+    executed: bool,
+    pending: bool,
+}
+
 // Application state for Axum
 #[derive(Debug, Clone)]
 struct AppState {
     door_state: watch::Sender<DoorState>,
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
+    command_status: Arc<Mutex<CommandStatus>>,
 }
 
 impl DoorState {
@@ -127,6 +134,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app_state = AppState {
         door_state: door_state_tx.clone(),
         latest_command: Arc::new(Mutex::new(None)),
+        command_status: Arc::new(Mutex::new(CommandStatus { executed: false, pending: false })),
     };
 
     monitor_gpio(
@@ -135,6 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         coupler,
         door_state_tx,
         app_state.latest_command.clone(),
+        app_state.command_status.clone(),
         poll_interval,
         expected_shut_time + shut_time_buffer,
         coupler_duration
@@ -162,6 +171,7 @@ fn monitor_gpio<I1, I2, O>(
     mut coupler: O,
     state_tx: watch::Sender<DoorState>,
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
+    command_status: Arc<Mutex<CommandStatus>>,
     poll_interval: Duration,
     expected_shut_time: Duration,
     coupler_duration: Duration,
@@ -187,11 +197,17 @@ fn monitor_gpio<I1, I2, O>(
                         GpioCommand::Close => last_state == DoorState::Open,
                     };
 
+                    // Update command status
+                    let mut status = command_status.lock().unwrap();
                     if should_activate {
                         let _ = coupler.set_high();
                         coupler_active = true;
                         coupler_start = Instant::now();
+                        status.executed = true;
+                    } else {
+                        status.executed = false;
                     }
+                    status.pending = false;
                 }
             }
 
@@ -286,35 +302,80 @@ async fn toggle_door(
     _: Authenticated,
     State(app_state): State<AppState>,
 ) -> (StatusCode, Json<DoorResponse>) {
-    store_command(app_state.latest_command, GpioCommand::Toggle)
+    store_command(app_state.latest_command, app_state.command_status.clone(), GpioCommand::Toggle).await
 }
 
 async fn open_door(
     _: Authenticated,
     State(app_state): State<AppState>,
 ) -> (StatusCode, Json<DoorResponse>) {
-    store_command(app_state.latest_command, GpioCommand::Open)
+    store_command(app_state.latest_command, app_state.command_status.clone(), GpioCommand::Open).await
 }
 
 async fn close_door(
     _: Authenticated,
     State(app_state): State<AppState>,
 ) -> (StatusCode, Json<DoorResponse>) {
-    store_command(app_state.latest_command, GpioCommand::Close)
+    store_command(app_state.latest_command, app_state.command_status.clone(), GpioCommand::Close).await
 }
 
-fn store_command(
+// Update store_command to be async and wait for execution status
+async fn store_command(
     cmd_mutex: Arc<Mutex<Option<GpioCommand>>>,
+    status_mutex: Arc<Mutex<CommandStatus>>,
     cmd: GpioCommand,
 ) -> (StatusCode, Json<DoorResponse>) {
-    let mut lock = cmd_mutex.lock().unwrap();
-    *lock = Some(cmd);
+    // Set pending status and store command
+    {
+        let mut status = status_mutex.lock().unwrap();
+        status.pending = true;
+        status.executed = false;
+    }
     
+    {
+        let mut lock = cmd_mutex.lock().unwrap();
+        *lock = Some(cmd);
+    }
+    
+    // Wait for command to be processed (with timeout)
+    let start = Instant::now();
+    let timeout = Duration::from_secs(2); // 2 second timeout
+    
+    while start.elapsed() < timeout {
+        {
+            let status = status_mutex.lock().unwrap();
+            if !status.pending {
+                // Command has been processed
+                return if status.executed {
+                    (
+                        StatusCode::OK,
+                        Json(DoorResponse {
+                            status: "success",
+                            message: "Command executed",
+                        }),
+                    )
+                } else {
+                    (
+                        StatusCode::OK,
+                        Json(DoorResponse {
+                            status: "not_executed",
+                            message: "Command not applicable in current state",
+                        }),
+                    )
+                };
+            }
+        }
+        
+        // Small delay to prevent tight loop
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    
+    // Timeout occurred
     (
-        StatusCode::OK,
+        StatusCode::ACCEPTED,
         Json(DoorResponse {
-            status: "success",
-            message: "Command queued",
+            status: "pending",
+            message: "Command queued but execution status unknown",
         }),
     )
 }
