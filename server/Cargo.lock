@@ -513,6 +513,7 @@ dependencies = [
  "axum",
  "futures",
  "rppal",
+ "serde",
  "tokio",
 ]
 
