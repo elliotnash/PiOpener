@@ -10,6 +10,7 @@ const AnimatedGarageDoor = ({ isOpen }: { isOpen: boolean }) => {
   });
 
   return (
+    // biome-ignore lint/suspicious/noExplicitAny: Vector3
     <animated.mesh rotation={rotation as any} position={[0, 0, 0]}>
       <boxGeometry args={[2, 2, 0.1]} />
       <meshStandardMaterial color="gray" />
