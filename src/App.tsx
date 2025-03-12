@@ -1,3 +1,5 @@
+import "./global.css";
+
 import { useState } from "react";
 import { Canvas } from "@react-three/fiber/native";
 import { useSpring, animated } from "@react-spring/three";
@@ -44,41 +46,19 @@ export default function App() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <View style={styles.container}>
-      <Canvas style={styles.canvas}>
+    <View className="flex-1">
+      <Canvas className="flex-1">
         <Scene isOpen={isOpen} />
       </Canvas>
 
       <TouchableOpacity
-        style={styles.button}
+        className="absolute bottom-10 p-4 self-center rounded-full bg-blue-500"
         onPress={() => setIsOpen(!isOpen)}
       >
-        <Text style={styles.buttonText}>
+        <Text className="text-white font-bold">
           {isOpen ? "Close Door" : "Open Door"}
         </Text>
       </TouchableOpacity>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  canvas: {
-    flex: 1,
-  },
-  button: {
-    position: "absolute",
-    bottom: 40,
-    alignSelf: "center",
-    backgroundColor: "blue",
-    padding: 15,
-    borderRadius: 10,
-  },
-  buttonText: {
-    color: "white",
-    fontWeight: "bold",
-  },
-});
