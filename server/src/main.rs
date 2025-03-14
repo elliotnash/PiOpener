@@ -232,19 +232,27 @@ fn monitor_gpio<I1, I2, O>(
                     }
                 },
                 (true, false) => {
-                    last_direction = -1_f64;
-                    DoorState {
-                        status: DoorStatus::Closed,
-                        setpoint: last_state.setpoint,
-                        position: 0_f64,
-                    }
+                    if last_state.status == DoorStatus::MovingUp {
+                        last_state
+                    } else {
+                        last_direction = -1_f64;
+                        DoorState {
+                            status: DoorStatus::Closed,
+                            setpoint: last_state.setpoint,
+                            position: 0_f64,
+                        }
+                    }  
                 },
                 (false, true) => {
-                    last_direction = 1_f64;
-                    DoorState {
-                        status: DoorStatus::Open,
-                        setpoint: last_state.setpoint,
-                        position: 1_f64,
+                    if last_state.status == DoorStatus::MovingDown {
+                        last_state
+                    } else {
+                        last_direction = 1_f64;
+                        DoorState {
+                            status: DoorStatus::Open,
+                            setpoint: last_state.setpoint,
+                            position: 1_f64,
+                        }
                     }
                 },
                 (false, false) => {
@@ -290,7 +298,7 @@ fn monitor_gpio<I1, I2, O>(
                             },
                             DoorStatus::Open => {
                                 last_direction = -1_f64;
-                                    DoorState {
+                                DoorState {
                                     status: DoorStatus::MovingDown,
                                     setpoint: DoorSetpoint::Closed,
                                     position: new_state.position,
