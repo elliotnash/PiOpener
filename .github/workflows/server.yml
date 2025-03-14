@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - TARGET: arm-unknown-linux-gnueabi # Raspberry Pi Zero
+          - TARGET: arm-unknown-linux-gnueabihf # Raspberry Pi Zero
             OS: ubuntu-latest
     runs-on: ${{ matrix.OS }}
     env:
@@ -36,7 +36,7 @@ jobs:
           # dependencies are only needed on ubuntu as that's the only place where
           # we make cross-compilation
           if [[ $OS =~ ^ubuntu.*$ ]]; then
-            sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf crossbuild-essential-arm
+            sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf
           fi
 
           # some additional configuration for cross-compilation on linux
@@ -53,10 +53,6 @@ jobs:
           linker = "arm-linux-gnueabihf-gcc"
           [target.arm-unknown-linux-musleabihf]
           linker = "arm-linux-gnueabihf-gcc"
-          [target.arm-unknown-linux-gnueabi]
-          linker = "arm-linux-gnueabi-gcc"
-          [target.arm-unknown-linux-musleabi]
-          linker = "arm-linux-gnueabi-gcc"
           EOF
       - name: Install rust target
         run: rustup target add $TARGET
