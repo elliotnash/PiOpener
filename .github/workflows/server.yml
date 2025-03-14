@@ -19,6 +19,9 @@ jobs:
     env:
       TARGET: ${{ matrix.TARGET }}
       OS: ${{ matrix.OS }}
+    defaults:
+      run:
+        working-directory: ./server
     steps:
       - uses: actions/checkout@v2
       - name: Cargo cache
