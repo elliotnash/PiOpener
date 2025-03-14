@@ -10,7 +10,7 @@ env:
 jobs:
   build:
     strategy:
-      fail-fast: false,
+      fail-fast: false
       matrix:
         include:
           - TARGET: arm-unknown-linux-gnueabi # Raspberry Pi Zero
