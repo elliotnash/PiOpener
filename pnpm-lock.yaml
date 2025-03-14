@@ -71,6 +71,9 @@ importers:
       three:
         specifier: ^0.174.0
         version: 0.174.0
+      three-stdlib:
+        specifier: ^2.35.14
+        version: 2.35.14(three@0.174.0)
     devDependencies:
       '@babel/core':
         specifier: ^7.20.0

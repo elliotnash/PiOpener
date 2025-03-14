@@ -7,7 +7,7 @@ const config = {
   ...defaultConfig,
   resolver: {
     ...defaultConfig.resolver,
-    assetExts: defaultConfig.resolver.assetExts.concat(["glbs", "gltf"]),
+    assetExts: defaultConfig.resolver.assetExts.concat(["glb", "gltf"]),
   },
 };
 

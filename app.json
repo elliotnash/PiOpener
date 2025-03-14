@@ -25,11 +25,12 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "assetBundlePatterns": ["assets/**/*"],
     "plugins": [
       [
         "expo-asset",
         {
-          "assets": ["./assets/panel.glb"]
+          "extensions": ["glb", "gltf"]
         }
       ]
     ]

@@ -1,15 +1,21 @@
 import { useState, useRef, Suspense } from "react";
 import { Canvas } from "@react-three/fiber/native";
 import { useSpring, animated } from "@react-spring/three";
-import { TouchableOpacity, Text, View, Dimensions } from "react-native";
+import {
+  TouchableOpacity,
+  Text,
+  View,
+  Dimensions,
+  Platform,
+} from "react-native";
 import { useGLTF } from "@react-three/drei";
+import type { GLTF } from "three-stdlib";
 import type * as THREE from "three";
 import {
   GestureDetector,
   Gesture,
   Directions,
 } from "react-native-gesture-handler";
-// import modelPath from "../assets/panel.glb";
 
 const panelPositions = [
   [0, -0.75, 0],
@@ -18,8 +24,18 @@ const panelPositions = [
   [0, 0.75, 0],
 ];
 
+const useDoorPanel = () => {
+  return (
+    useGLTF(
+      Platform.OS === "web"
+        ? "/assets/panel.glb"
+        : require("../assets/panel.glb"),
+    ) as GLTF
+  ).scene as THREE.Group;
+};
+
 const AnimatedGarageDoor = ({ openProgress }: { openProgress: number }) => {
-  const panel = useGLTF("assets/panel.glb").scene;
+  const panel = useDoorPanel();
 
   // Calculate rotation and position based on openProgress (0 to 1)
   const { rotation, position } = useSpring({
@@ -30,7 +46,7 @@ const AnimatedGarageDoor = ({ openProgress }: { openProgress: number }) => {
 
   panel.traverse((child) => {
     if (child.type === "Mesh") {
-      //@ts-ignore
+      // @ts-ignore
       child.material.color.set("#be9878");
     }
   });
@@ -66,7 +82,7 @@ const AnimatedGarageDoor = ({ openProgress }: { openProgress: number }) => {
 const AnimatedGarageDoorFrame = ({
   openProgress,
 }: { openProgress: number }) => {
-  const panel = useGLTF("/assets/panel.glb").scene;
+  const panel = useDoorPanel();
 
   // Calculate rotation and position based on openProgress (0 to 1)
   const { rotation, position } = useSpring({
@@ -94,7 +110,7 @@ const AnimatedGarageDoorFrame = ({
                   }`}
                 >
                   <edgesGeometry args={[(child as THREE.Mesh).geometry]} />
-                  <lineBasicMaterial color="#fff" linewidth={2} />
+                  <lineBasicMaterial color="#fff" linewidth={1} />
                 </lineSegments>
               );
             }
@@ -135,11 +151,13 @@ export default function Garage() {
   const dragGesture = Gesture.Pan()
     .runOnJS(true)
     .onBegin((event) => {
+      console.log("DRAG BEGIN");
       startYRef.current = event.absoluteY;
       // Store the current progress when beginning the drag
       startProgressRef.current = openProgress;
     })
     .onUpdate((event) => {
+      console.log("DRAG UPDATE");
       // Calculate how far the finger has moved as a percentage of screen height
       const dragDistance = startYRef.current - event.absoluteY;
       // Calculate new progress based on starting progress and drag distance
