@@ -193,9 +193,10 @@ export default function IndexPage() {
       <Stack.Screen
         options={{
           headerTitle: "Garage",
+          headerShadowVisible: false,
           headerRight: () => (
             <Link href="/settings" asChild>
-              <TouchableOpacity className="mr-4 bg-foreground/10 p-2 rounded-full">
+              <TouchableOpacity className="mr-0 bg-foreground/10 p-2 rounded-full">
                 <Ionicons
                   name="settings-outline"
                   size={24}

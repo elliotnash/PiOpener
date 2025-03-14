@@ -8,6 +8,7 @@ export default function SettingsPage() {
       <Stack.Screen
         options={{
           headerTitle: "Settings",
+          headerShadowVisible: false,
         }}
       />
       <InputSetting name="API URL" />
