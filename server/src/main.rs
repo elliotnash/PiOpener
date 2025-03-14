@@ -2,7 +2,7 @@ use axum::{
     extract::{FromRequestParts, State}, http::{request::Parts, StatusCode}, response::{sse::Event, IntoResponse, Response, Sse}, routing::{get, post}, Json, RequestPartsExt, Router
 };
 use axum_extra::{headers::{authorization::Bearer, Authorization}, TypedHeader};
-use std::sync::{Arc, Mutex};
+use std::{collections::VecDeque, sync::{Arc, Mutex}};
 use futures::stream::Stream;
 use std::{
     error::Error,
@@ -11,21 +11,56 @@ use std::{
 };
 use tokio::sync::watch;
 use serde::Serialize;
-use embedded_hal::digital::{InputPin, OutputPin};
+use embedded_hal::digital::{InputPin, OutputPin, PinState};
 use config::AppConfig;
 
 mod gpio;
 mod config;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DoorState {
+    status: DoorStatus,
+    setpoint: DoorSetpoint,
+    position: f64,
+}
+
 // State tracking and GPIO command enums
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum DoorState {
-    Unknown,
+enum DoorStatus {
     Closed,
     Open,
     Ajar,
     MovingUp,
     MovingDown,
+}
+
+impl DoorStatus {
+    fn value(&self) -> &'static str {
+        match self {
+            DoorStatus::Closed => "closed",
+            DoorStatus::Open => "open",
+            DoorStatus::Ajar => "ajar",
+            DoorStatus::MovingUp => "moving_up",
+            DoorStatus::MovingDown => "moving_down",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DoorSetpoint {
+    Closed,
+    Open,
+    Ajar,
+}
+
+impl DoorSetpoint {
+    fn value(&self) -> &'static str {
+        match self {
+            DoorSetpoint::Closed => "closed",
+            DoorSetpoint::Open => "open",
+            DoorSetpoint::Ajar => "ajar",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -35,31 +70,11 @@ enum GpioCommand {
     Close,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CommandStatus {
-    executed: bool,
-    pending: bool,
-}
-
 // Application state for Axum
 #[derive(Debug, Clone)]
 struct AppState {
     door_state: watch::Sender<DoorState>,
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
-    command_status: Arc<Mutex<CommandStatus>>,
-}
-
-impl DoorState {
-    fn value(&self) -> &'static str {
-        match self {
-            DoorState::Unknown => "unknown",
-            DoorState::Closed => "closed",
-            DoorState::Open => "open",
-            DoorState::Ajar => "ajar",
-            DoorState::MovingUp => "moving_up",
-            DoorState::MovingDown => "moving_down",
-        }
-    }
 }
 
 struct Authenticated;
@@ -98,7 +113,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let poll_interval = Duration::from_millis(config.garage_door.poll_interval_ms);
     let expected_shut_time = Duration::from_secs(config.garage_door.expected_shut_time_sec);
     let shut_time_buffer = Duration::from_secs(config.garage_door.shut_time_buffer_sec);
-    let coupler_duration = Duration::from_millis(config.garage_door.coupler_duration_ms);
 
     // Initialize GPIO components with config values
     let (close_limit_switch, open_limit_switch, coupler) = gpio::create_pins(
@@ -110,11 +124,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     // Create communication channels
-    let (door_state_tx, _) = watch::channel(DoorState::Unknown);
+    let (door_state_tx, _) = watch::channel(DoorState{
+        status: DoorStatus::Ajar,
+        setpoint: DoorSetpoint::Ajar,
+        position: 0_f64,
+    });
     let app_state = AppState {
         door_state: door_state_tx.clone(),
         latest_command: Arc::new(Mutex::new(None)),
-        command_status: Arc::new(Mutex::new(CommandStatus { executed: false, pending: false })),
     };
 
     monitor_gpio(
@@ -123,10 +140,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         coupler,
         door_state_tx,
         app_state.latest_command.clone(),
-        app_state.command_status.clone(),
         poll_interval,
         expected_shut_time + shut_time_buffer,
-        coupler_duration
     );
 
     let app = Router::new()
@@ -152,112 +167,245 @@ fn monitor_gpio<I1, I2, O>(
     mut coupler: O,
     state_tx: watch::Sender<DoorState>,
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
-    command_status: Arc<Mutex<CommandStatus>>,
     poll_interval: Duration,
     expected_shut_time: Duration,
-    coupler_duration: Duration,
 ) where
     I1: InputPin + Send + 'static,
     I2: InputPin + Send + 'static,
     O: OutputPin + Send + 'static,
 {
     thread::spawn(move || {
-        let mut last_state = DoorState::Unknown;
-        let mut last_known = Instant::now();
-        let mut coupler_active = false;
-        let mut coupler_start = Instant::now();
+        let mut last_state = DoorState {
+            status: DoorStatus::Ajar,
+            setpoint: DoorSetpoint::Ajar,
+            position: 0.0,
+        };
+        let mut last_direction = 0_f64;
+        let mut last_time = Instant::now();
+
+        let mut coupler_queue: VecDeque<PinState> = VecDeque::with_capacity(10);
 
         loop {
-            // Process commands first
-            let command = latest_command.lock().unwrap().take();
-            if let Some(cmd) = command {
-                if !coupler_active {
-                    let should_activate = match cmd {
-                        GpioCommand::Toggle => true,
-                        GpioCommand::Open => last_state == DoorState::Closed,
-                        GpioCommand::Close => last_state == DoorState::Open,
-                    };
-
-                    // Update command status
-                    let mut status = command_status.lock().unwrap();
-                    if should_activate {
-                        let _ = coupler.set_high();
-                        coupler_active = true;
-                        coupler_start = Instant::now();
-                        status.executed = true;
-                    } else {
-                        status.executed = false;
-                    }
-                    status.pending = false;
-                }
-            }
-
             // Update door state with timing consideration
             let now = Instant::now();
             let close_triggered = close_limit.is_low().unwrap_or(false);
             let open_triggered = open_limit.is_low().unwrap_or(false);
 
-            let new_state = calculate_state(
-                close_triggered,
-                open_triggered,
-                last_state,
-                &mut last_known,
-                now,
-                expected_shut_time
-            );
+            let mut new_state = match (close_triggered, open_triggered) {
+                (true, true) => {
+                    DoorState {
+                        status: DoorStatus::Ajar,
+                        setpoint: last_state.setpoint,
+                        position: last_state.position,
+                    }
+                },
+                (true, false) => {
+                    last_direction = -1_f64;
+                    DoorState {
+                        status: DoorStatus::Closed,
+                        setpoint: last_state.setpoint,
+                        position: 0_f64,
+                    }
+                },
+                (false, true) => {
+                    last_direction = 1_f64;
+                    DoorState {
+                        status: DoorStatus::Open,
+                        setpoint: last_state.setpoint,
+                        position: 1_f64,
+                    }
+                },
+                (false, false) => {
+                    match last_state.status {
+                        DoorStatus::Closed => DoorState {
+                            status: DoorStatus::MovingUp,
+                            setpoint: last_state.setpoint,
+                            position: last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64()),
+                        },
+                        DoorStatus::Open => DoorState {
+                            status: DoorStatus::MovingDown,
+                            setpoint: last_state.setpoint,
+                            position: last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64()),
+                        },
+                        _ => last_state,
+                    }
+                }
+            };
+
+            // Process commands
+            let command = latest_command.lock().unwrap().take();
+            if let Some(cmd) = command {
+                match cmd {
+                    GpioCommand::Toggle => {
+                        // If toggled we will always activate coupler exactly once
+                        coupler_queue.push_back(PinState::High);
+                        coupler_queue.push_back(PinState::Low);
+                        // We will invert setpoint. If stopped, we will use the direction opposite the last direction.
+                        new_state = match new_state.status {
+                            DoorStatus::Closed => {
+                                last_direction = 1_f64;
+                                DoorState {
+                                    status: DoorStatus::MovingUp,
+                                    setpoint: DoorSetpoint::Open,
+                                    position: new_state.position,
+                                }
+                            },
+                            DoorStatus::Open => {
+                                last_direction = -1_f64;
+                                    DoorState {
+                                    status: DoorStatus::MovingDown,
+                                    setpoint: DoorSetpoint::Closed,
+                                    position: new_state.position,
+                                }
+                            },
+                            DoorStatus::MovingUp | DoorStatus::MovingDown => DoorState {
+                                status: DoorStatus::Ajar,
+                                setpoint: DoorSetpoint::Ajar,
+                                position: new_state.position,
+                            },
+                            _ => if last_direction > 0_f64 {
+                                last_direction = -1_f64;
+                                DoorState {
+                                    status: DoorStatus::MovingDown,
+                                    setpoint: DoorSetpoint::Closed,
+                                    position: new_state.position,
+                                }
+                            } else {
+                                last_direction = 1_f64;
+                                DoorState {
+                                    status: DoorStatus::MovingUp,
+                                    setpoint: DoorSetpoint::Open,
+                                    position: new_state.position,
+                                }
+                            }
+                        };
+                    },
+                    GpioCommand::Open => {
+                        // If command is open or close then we need to decide if we need 0, 1, 2, or 3 clicks
+                        new_state = match new_state.status {
+                            DoorStatus::MovingDown => {
+                                coupler_queue.push_back(PinState::High);
+                                coupler_queue.push_back(PinState::Low);
+                                coupler_queue.push_back(PinState::High);
+                                coupler_queue.push_back(PinState::Low);
+
+                                last_direction = 1_f64;
+                                DoorState {
+                                    status: DoorStatus::MovingUp,
+                                    setpoint: DoorSetpoint::Open,
+                                    position: new_state.position,
+                                }
+                            },
+                            DoorStatus::Ajar => {
+                                // If it went up last time, now it will go down, so we need three clicks. Otherwise we just need 1
+                                if last_direction > 0_f64 {
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                } else {
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                }
+                                DoorState {
+                                    status: DoorStatus::MovingUp,
+                                    setpoint: DoorSetpoint::Open,
+                                    position: new_state.position,
+                                }
+                            },
+                            DoorStatus::Closed => {
+                                coupler_queue.push_back(PinState::High);
+                                coupler_queue.push_back(PinState::Low);
+                                DoorState {
+                                    status: DoorStatus::MovingUp,
+                                    setpoint: DoorSetpoint::Open,
+                                    position: new_state.position,
+                                }
+                            }
+                            _ => DoorState {
+                                status: new_state.status,
+                                setpoint: DoorSetpoint::Open,
+                                position: new_state.position,
+                            }
+                        }
+                    },
+                    GpioCommand::Close => {
+                        // If command is close then we need to decide if we need 0, 1, 2, or 3 clicks
+                        new_state = match new_state.status {
+                            DoorStatus::MovingUp => {
+                                coupler_queue.push_back(PinState::High);
+                                coupler_queue.push_back(PinState::Low);
+                                coupler_queue.push_back(PinState::High);
+                                coupler_queue.push_back(PinState::Low);
+
+                                last_direction = -1_f64;
+                                DoorState {
+                                    status: DoorStatus::MovingDown,
+                                    setpoint: DoorSetpoint::Closed,
+                                    position: new_state.position,
+                                }
+                            },
+                            DoorStatus::Ajar => {
+                                // If it went down last time, now it will go up, so we need three clicks. Otherwise we just need 1
+                                if last_direction < 0_f64 {
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                } else {
+                                    coupler_queue.push_back(PinState::High);
+                                    coupler_queue.push_back(PinState::Low);
+                                }
+                                DoorState {
+                                    status: DoorStatus::MovingDown,
+                                    setpoint: DoorSetpoint::Closed,
+                                    position: new_state.position,
+                                }
+                            },
+                            DoorStatus::Open => {
+                                coupler_queue.push_back(PinState::High);
+                                coupler_queue.push_back(PinState::Low);
+                                DoorState {
+                                    status: DoorStatus::MovingDown,
+                                    setpoint: DoorSetpoint::Closed,
+                                    position: new_state.position,
+                                }
+                            }
+                            _ => DoorState {
+                                status: new_state.status,
+                                setpoint: DoorSetpoint::Closed,
+                                position: new_state.position,
+                            }
+                        }
+                    }
+                }
+            }
+
+             // Toggle coupler if requested
+             if let Some(pin_state) = coupler_queue.pop_front() {
+                let _ = coupler.set_state(pin_state);
+            }
 
             if new_state != last_state {
                 state_tx.send_replace(new_state);
                 last_state = new_state;
             }
-
-            // Manage coupler timing
-            if coupler_active && now.duration_since(coupler_start) >= coupler_duration {
-                let _ = coupler.set_low();
-                coupler_active = false;
-            }
+            last_time = now;
 
             thread::sleep(poll_interval);
         }
     });
 }
 
-// Door state calculation logic
-fn calculate_state(
-    close_triggered: bool,
-    open_triggered: bool,
-    last_state: DoorState,
-    last_known: &mut Instant,
-    current_time: Instant,
-    expected_shut_time: Duration
-) -> DoorState {
-    match (close_triggered, open_triggered) {
-        (true, true) => DoorState::Unknown,
-        (true, false) => {
-            *last_known = current_time;
-            DoorState::Closed
-        }
-        (false, true) => {
-            *last_known = current_time;
-            DoorState::Open
-        }
-        (false, false) => {
-            if current_time.duration_since(*last_known) > expected_shut_time {
-                DoorState::Ajar
-            } else {
-                match last_state {
-                    DoorState::Closed => DoorState::MovingUp,
-                    DoorState::Open => DoorState::MovingDown,
-                    _ => last_state,
-                }
-            }
-        }
-    }
-}
-
 #[derive(Serialize)]
 struct StatusResponse {
     status: &'static str,
+    setpoint: &'static str,
+    position: f64,
 }
 
 // Axum handlers
@@ -268,11 +416,11 @@ async fn watch_status_handler(
     let mut rx = app_state.door_state.subscribe();
     let stream = async_stream::try_stream! {
         let initial = *rx.borrow();
-        yield Event::default().json_data(StatusResponse { status: initial.value() }).unwrap();
+        yield Event::default().json_data(StatusResponse { status: initial.status.value(), setpoint: initial.setpoint.value(), position: initial.position }).unwrap();
 
         while let Ok(()) = rx.changed().await {
             let current = *rx.borrow();
-            yield Event::default().json_data(StatusResponse { status: current.value() }).unwrap();
+            yield Event::default().json_data(StatusResponse { status: current.status.value(), setpoint: current.setpoint.value(), position: current.position }).unwrap();
         }
     };
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
@@ -285,7 +433,7 @@ async fn current_status_handler(
 ) -> Json<StatusResponse> {
     let rx = app_state.door_state.subscribe();
     let current = *rx.borrow();
-    Json(StatusResponse { status: current.value() })
+    Json(StatusResponse { status: current.status.value(), setpoint: current.setpoint.value(), position: current.position })
 }
 
 #[derive(Serialize)]
@@ -297,81 +445,37 @@ struct DoorResponse {
 async fn toggle_door(
     _: Authenticated,
     State(app_state): State<AppState>,
-) -> (StatusCode, Json<DoorResponse>) {
-    store_command(app_state.latest_command, app_state.command_status.clone(), GpioCommand::Toggle).await
+) -> Json<DoorResponse> {
+    store_command(app_state.latest_command, GpioCommand::Toggle).await
 }
 
 async fn open_door(
     _: Authenticated,
     State(app_state): State<AppState>,
-) -> (StatusCode, Json<DoorResponse>) {
-    store_command(app_state.latest_command, app_state.command_status.clone(), GpioCommand::Open).await
+) -> Json<DoorResponse> {
+    store_command(app_state.latest_command, GpioCommand::Open).await
 }
 
 async fn close_door(
     _: Authenticated,
     State(app_state): State<AppState>,
-) -> (StatusCode, Json<DoorResponse>) {
-    store_command(app_state.latest_command, app_state.command_status.clone(), GpioCommand::Close).await
+) -> Json<DoorResponse> {
+    store_command(app_state.latest_command, GpioCommand::Close).await
 }
 
 // Update store_command to be async and wait for execution status
 async fn store_command(
     cmd_mutex: Arc<Mutex<Option<GpioCommand>>>,
-    status_mutex: Arc<Mutex<CommandStatus>>,
     cmd: GpioCommand,
-) -> (StatusCode, Json<DoorResponse>) {
-    // Set pending status and store command
-    {
-        let mut status = status_mutex.lock().unwrap();
-        status.pending = true;
-        status.executed = false;
-    }
-    
+) -> Json<DoorResponse> {
+    // Set pending status and store command    
     {
         let mut lock = cmd_mutex.lock().unwrap();
         *lock = Some(cmd);
     }
     
-    // Wait for command to be processed (with timeout)
-    let start = Instant::now();
-    let timeout = Duration::from_secs(2); // 2 second timeout
-    
-    while start.elapsed() < timeout {
-        {
-            let status = status_mutex.lock().unwrap();
-            if !status.pending {
-                // Command has been processed
-                return if status.executed {
-                    (
-                        StatusCode::OK,
-                        Json(DoorResponse {
-                            status: "success",
-                            message: "Command executed",
-                        }),
-                    )
-                } else {
-                    (
-                        StatusCode::OK,
-                        Json(DoorResponse {
-                            status: "not_executed",
-                            message: "Command not applicable in current state",
-                        }),
-                    )
-                };
-            }
-        }
-        
-        // Small delay to prevent tight loop
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    
-    // Timeout occurred
-    (
-        StatusCode::ACCEPTED,
-        Json(DoorResponse {
-            status: "pending",
-            message: "Command queued but execution status unknown",
-        }),
-    )
+    Json(DoorResponse {
+        status: "success",
+        message: "Command executed",
+    })
 }
