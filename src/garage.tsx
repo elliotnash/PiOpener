@@ -150,59 +150,46 @@ export default function Garage() {
   // Define drag gesture
   const dragGesture = Gesture.Pan()
     .runOnJS(true)
+    .minDistance(0)
     .onBegin((event) => {
-      console.log("DRAG BEGIN");
       startYRef.current = event.absoluteY;
       // Store the current progress when beginning the drag
       startProgressRef.current = openProgress;
     })
     .onUpdate((event) => {
-      console.log("DRAG UPDATE");
       // Calculate how far the finger has moved as a percentage of screen height
       const dragDistance = startYRef.current - event.absoluteY;
       // Calculate new progress based on starting progress and drag distance
       const newProgress = Math.max(
         0,
-        Math.min(1, startProgressRef.current + dragDistance / (height * 0.4)),
+        Math.min(1, startProgressRef.current + dragDistance / (height * 0.3)),
       );
       setOpenProgress(newProgress);
     })
-    .onEnd(() => {
+    .onEnd((event) => {
+      // Calculate how far the finger has moved as a percentage of screen height
+      const dragDistance = startYRef.current - event.absoluteY;
+      // Calculate new progress based on starting progress and drag distance
+      const newProgress = Math.max(
+        0,
+        Math.min(1, startProgressRef.current + dragDistance / (height * 0.3)),
+      );
       // Snap to fully open or closed based on current progress
-      if (openProgress > 0.5) {
+      if (newProgress > 0.5) {
         setOpenProgress(1);
       } else {
         setOpenProgress(0);
       }
     });
 
-  // Quick swipe gesture for full open/close
-  // Define separate gestures for up and down swipes
-  const swipeUpGesture = Gesture.Fling()
-    .runOnJS(true)
-    .direction(Directions.UP)
-    .onStart(() => {
-      setOpenProgress(1); // Open fully
-    });
-
-  const swipeDownGesture = Gesture.Fling()
-    .runOnJS(true)
-    .direction(Directions.DOWN)
-    .onStart(() => {
-      setOpenProgress(0); // Close fully
-    });
-
-  // Combine all gestures
-  const combinedGestures = Gesture.Exclusive(
-    dragGesture,
-    swipeUpGesture,
-    swipeDownGesture,
-  );
-
   return (
-    <GestureDetector gesture={combinedGestures}>
+    <GestureDetector gesture={dragGesture}>
       <View className="flex-1 bg-black">
-        <Canvas camera={{ position: [1, 2, 8], fov: 50 }} className="flex-1">
+        <Canvas
+          camera={{ position: [1, 2, 8], fov: 50 }}
+          className="flex-1"
+          pointerEvents="none"
+        >
           <Suspense>
             <Scene openProgress={openProgress} />
           </Suspense>
