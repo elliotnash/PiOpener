@@ -58,10 +58,6 @@ jobs:
         run: rustup target add $TARGET
       - name: Run build
         run: cargo build --release --verbose --target $TARGET --features raspberry_pi
-      - name: List release
-        run: ls ./target/arm-unknown-linux-gnueabihf/release
-      - name: List release 2
-        run: ls ./target/$TARGET/release
       - name: Archive artifact
         uses: actions/upload-artifact@v4
         with:
