@@ -191,6 +191,8 @@ fn monitor_gpio<I1, I2, O>(
             },
             position: 0.0,
         };
+        state_tx.send_replace(last_state);
+
         let mut last_direction = 0_f64;
         let mut last_time = Instant::now();
 
