@@ -407,7 +407,13 @@ fn monitor_gpio<I1, I2, O>(
 
              // Toggle coupler if requested
              if let Some(pin_state) = coupler_queue.pop_front() {
-                let _ = coupler.set_state(pin_state);
+                let _ = if pin_state == PinState::High {
+                    println!("Coupler ON");
+                    coupler.set_high()
+                } else {
+                    println!("Coupler OFF");
+                    coupler.set_low()
+                };
             }
 
             if new_state != last_state {
