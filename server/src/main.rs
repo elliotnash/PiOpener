@@ -142,7 +142,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app_state.latest_command.clone(),
         poll_interval,
         expected_shut_time,
-        config.garage_door.coupler_duration_intervals,
+        config.garage_door.coupler_active_intervals,
+        config.garage_door.coupler_rest_intervals,
     );
 
     let app = Router::new()
@@ -170,7 +171,8 @@ fn monitor_gpio<I1, I2, O>(
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
     poll_interval: Duration,
     expected_shut_time: Duration,
-    coupler_duration_intervals: u64,
+    coupler_active_intervals: u64,
+    coupler_rest_intervals: u64,
 ) where
     I1: InputPin + Send + 'static,
     I2: InputPin + Send + 'static,
@@ -200,14 +202,18 @@ fn monitor_gpio<I1, I2, O>(
 
         let mut coupler_queue: VecDeque<PinState> = VecDeque::with_capacity(10);
 
-        fn toggle_coupler_n(queue: &mut VecDeque<PinState>, queue_intervals: u64, n: u64) {
-            for _ in 0..n {
-                for _ in 0..queue_intervals {
-                    queue.push_back(PinState::High);
-                }
-                for _ in 0..queue_intervals {
-                    queue.push_back(PinState::Low);
-                }
+        fn toggle_coupler(queue: &mut VecDeque<PinState>, queue_intervals: u64) {
+            for _ in 0..queue_intervals {
+                queue.push_back(PinState::High);
+            }
+            for _ in 0..queue_intervals {
+                queue.push_back(PinState::Low);
+            }
+        }
+
+        fn rest_coupler(queue: &mut VecDeque<PinState>, rest_intervals: u64) {
+            for _ in 0..rest_intervals {
+                queue.push_back(PinState::Low);
             }
         }
 
@@ -271,7 +277,7 @@ fn monitor_gpio<I1, I2, O>(
                 match cmd {
                     GpioCommand::Toggle => {
                         // If toggled we will always activate coupler exactly once
-                        toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 1);
+                        toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                         // We will invert setpoint. If stopped, we will use the direction opposite the last direction.
                         new_state = match new_state.status {
                             DoorStatus::Closed => {
@@ -316,7 +322,9 @@ fn monitor_gpio<I1, I2, O>(
                         // If command is open or close then we need to decide if we need 0, 1, 2, or 3 clicks
                         new_state = match new_state.status {
                             DoorStatus::MovingDown => {
-                                toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 2);
+                                toggle_coupler(&mut coupler_queue, coupler_active_intervals);
+                                rest_coupler(&mut coupler_queue, coupler_rest_intervals);
+                                toggle_coupler(&mut coupler_queue, coupler_active_intervals);
 
                                 last_direction = 1_f64;
                                 DoorState {
@@ -328,9 +336,12 @@ fn monitor_gpio<I1, I2, O>(
                             DoorStatus::Ajar => {
                                 // If it went up last time, now it will go down, so we need three clicks. Otherwise we just need 1
                                 if last_direction > 0_f64 {
-                                    toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 3);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
+                                    rest_coupler(&mut coupler_queue, coupler_rest_intervals);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 } else {
-                                    toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 1);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 }
                                 DoorState {
                                     status: DoorStatus::MovingUp,
@@ -339,7 +350,7 @@ fn monitor_gpio<I1, I2, O>(
                                 }
                             },
                             DoorStatus::Closed => {
-                                toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 1);
+                                toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 DoorState {
                                     status: DoorStatus::MovingUp,
                                     setpoint: DoorSetpoint::Open,
@@ -357,7 +368,9 @@ fn monitor_gpio<I1, I2, O>(
                         // If command is close then we need to decide if we need 0, 1, 2, or 3 clicks
                         new_state = match new_state.status {
                             DoorStatus::MovingUp => {
-                                toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 2);
+                                toggle_coupler(&mut coupler_queue, coupler_active_intervals);
+                                rest_coupler(&mut coupler_queue, coupler_rest_intervals);
+                                toggle_coupler(&mut coupler_queue, coupler_active_intervals);
 
                                 last_direction = -1_f64;
                                 DoorState {
@@ -369,9 +382,12 @@ fn monitor_gpio<I1, I2, O>(
                             DoorStatus::Ajar => {
                                 // If it went down last time, now it will go up, so we need three clicks. Otherwise we just need 1
                                 if last_direction < 0_f64 {
-                                    toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 3);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
+                                    rest_coupler(&mut coupler_queue, coupler_rest_intervals);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 } else {
-                                    toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 1);
+                                    toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 }
                                 DoorState {
                                     status: DoorStatus::MovingDown,
@@ -380,7 +396,7 @@ fn monitor_gpio<I1, I2, O>(
                                 }
                             },
                             DoorStatus::Open => {
-                                toggle_coupler_n(&mut coupler_queue, coupler_duration_intervals, 1);
+                                toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 DoorState {
                                     status: DoorStatus::MovingDown,
                                     setpoint: DoorSetpoint::Closed,
