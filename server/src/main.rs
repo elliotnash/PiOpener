@@ -175,9 +175,20 @@ fn monitor_gpio<I1, I2, O>(
     O: OutputPin + Send + 'static,
 {
     thread::spawn(move || {
+        let close_triggered = close_limit.is_low().unwrap_or(false);
+        let open_triggered = open_limit.is_low().unwrap_or(false);
+
         let mut last_state = DoorState {
-            status: DoorStatus::Ajar,
-            setpoint: DoorSetpoint::Ajar,
+            status: match (close_triggered, open_triggered) {
+                (true, false) => DoorStatus::Closed,
+                (false, true) => DoorStatus::Open,
+                _ => DoorStatus::Ajar,
+            },
+            setpoint: match (close_triggered, open_triggered) {
+                (true, false) => DoorSetpoint::Closed,
+                (false, true) => DoorSetpoint::Open,
+                _ => DoorSetpoint::Ajar,
+            },
             position: 0.0,
         };
         let mut last_direction = 0_f64;
