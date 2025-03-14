@@ -8,14 +8,15 @@ import {
   View,
   Dimensions,
   Platform,
-  Button,
+  SafeAreaView,
 } from "react-native";
 import { useGLTF } from "@react-three/drei";
 import type { GLTF } from "three-stdlib";
 import type * as THREE from "three";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { useColorScheme } from "~/lib/useColorScheme";
-import { Stack } from "expo-router";
+import { Link, Stack } from "expo-router";
+import { useTheme } from "@react-navigation/native";
 
 const panelPositions = [
   [0, -0.75, 0],
@@ -144,7 +145,7 @@ const Scene = ({ openProgress }: { openProgress: number }) => {
   );
 };
 
-export default function Garage() {
+export default function IndexPage() {
   const [openProgress, setOpenProgress] = useState(0);
   const startYRef = useRef(0);
   const startProgressRef = useRef(0);
@@ -185,15 +186,23 @@ export default function Garage() {
       }
     });
 
+  const theme = useTheme();
+
   return (
     <>
       <Stack.Screen
         options={{
           headerTitle: "Garage",
           headerRight: () => (
-            <TouchableOpacity className="mr-4 bg-white/20 p-2 rounded-full">
-              <Ionicons name="settings-outline" size={24} color="white" />
-            </TouchableOpacity>
+            <Link href="/settings" asChild>
+              <TouchableOpacity className="mr-4 bg-foreground/10 p-2 rounded-full">
+                <Ionicons
+                  name="settings-outline"
+                  size={24}
+                  color={theme.colors.text}
+                />
+              </TouchableOpacity>
+            </Link>
           ),
         }}
       />
@@ -209,18 +218,16 @@ export default function Garage() {
             </Suspense>
           </Canvas>
 
-          {/* <TouchableOpacity className="absolute top-8 left-8 bg-white/20 p-2 rounded-full">
-          <Ionicons name="settings-outline" size={24} color="white" />
-        </TouchableOpacity> */}
-
-          <TouchableOpacity
-            className="absolute bottom-10 p-4 self-center rounded-full bg-blue-500"
-            onPress={() => setOpenProgress(openProgress > 0 ? 0 : 1)}
-          >
-            <Text className="text-white font-bold">
-              {openProgress > 0.5 ? "Close Door" : "Open Door"}
-            </Text>
-          </TouchableOpacity>
+          <SafeAreaView>
+            <TouchableOpacity
+              className="m-4 p-4 self-center rounded-full bg-blue-500"
+              onPress={() => setOpenProgress(openProgress > 0 ? 0 : 1)}
+            >
+              <Text className="text-white font-bold">
+                {openProgress > 0.5 ? "Close Door" : "Open Door"}
+              </Text>
+            </TouchableOpacity>
+          </SafeAreaView>
         </View>
       </GestureDetector>
     </>
