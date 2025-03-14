@@ -6,15 +6,11 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "org.elliotnash.garage"
     },
+    "scheme": "org.elliotnash.garage",
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -25,12 +21,29 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "experiments": {
+      "typedRoutes": true
+    },
     "assetBundlePatterns": ["assets/**/*"],
     "plugins": [
+      "expo-router",
       [
         "expo-asset",
         {
           "extensions": ["glb", "gltf"]
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "image": "./assets/splash.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#000000"
+          }
         }
       ]
     ]

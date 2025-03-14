@@ -1,21 +1,21 @@
 import { useState, useRef, Suspense } from "react";
 import { Canvas } from "@react-three/fiber/native";
 import { useSpring, animated } from "@react-spring/three";
+import { Ionicons } from "@expo/vector-icons";
 import {
   TouchableOpacity,
   Text,
   View,
   Dimensions,
   Platform,
+  Button,
 } from "react-native";
 import { useGLTF } from "@react-three/drei";
 import type { GLTF } from "three-stdlib";
 import type * as THREE from "three";
-import {
-  GestureDetector,
-  Gesture,
-  Directions,
-} from "react-native-gesture-handler";
+import { GestureDetector, Gesture } from "react-native-gesture-handler";
+import { useColorScheme } from "~/lib/useColorScheme";
+import { Stack } from "expo-router";
 
 const panelPositions = [
   [0, -0.75, 0],
@@ -29,7 +29,7 @@ const useDoorPanel = () => {
     useGLTF(
       Platform.OS === "web"
         ? "/assets/panel.glb"
-        : require("../assets/panel.glb"),
+        : require("../../assets/panel.glb"),
     ) as GLTF
   ).scene as THREE.Group;
 };
@@ -82,6 +82,9 @@ const AnimatedGarageDoor = ({ openProgress }: { openProgress: number }) => {
 const AnimatedGarageDoorFrame = ({
   openProgress,
 }: { openProgress: number }) => {
+  const { isDarkColorScheme } = useColorScheme();
+  const lineColor = isDarkColorScheme ? "#fff" : "#000";
+
   const panel = useDoorPanel();
 
   // Calculate rotation and position based on openProgress (0 to 1)
@@ -110,7 +113,7 @@ const AnimatedGarageDoorFrame = ({
                   }`}
                 >
                   <edgesGeometry args={[(child as THREE.Mesh).geometry]} />
-                  <lineBasicMaterial color="#fff" linewidth={1} />
+                  <lineBasicMaterial color={lineColor} linewidth={1} />
                 </lineSegments>
               );
             }
@@ -183,27 +186,43 @@ export default function Garage() {
     });
 
   return (
-    <GestureDetector gesture={dragGesture}>
-      <View className="flex-1 bg-black">
-        <Canvas
-          camera={{ position: [1, 2, 8], fov: 50 }}
-          className="flex-1"
-          pointerEvents="none"
-        >
-          <Suspense>
-            <Scene openProgress={openProgress} />
-          </Suspense>
-        </Canvas>
+    <>
+      <Stack.Screen
+        options={{
+          headerTitle: "Garage",
+          headerRight: () => (
+            <TouchableOpacity className="mr-4 bg-white/20 p-2 rounded-full">
+              <Ionicons name="settings-outline" size={24} color="white" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <GestureDetector gesture={dragGesture}>
+        <View className="flex-1">
+          <Canvas
+            camera={{ position: [1, 2, 8], fov: 50 }}
+            className="flex-1"
+            pointerEvents="none"
+          >
+            <Suspense>
+              <Scene openProgress={openProgress} />
+            </Suspense>
+          </Canvas>
 
-        <TouchableOpacity
-          className="absolute bottom-10 p-4 self-center rounded-full bg-blue-500"
-          onPress={() => setOpenProgress(openProgress > 0 ? 0 : 1)}
-        >
-          <Text className="text-white font-bold">
-            {openProgress > 0.5 ? "Close Door" : "Open Door"}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </GestureDetector>
+          {/* <TouchableOpacity className="absolute top-8 left-8 bg-white/20 p-2 rounded-full">
+          <Ionicons name="settings-outline" size={24} color="white" />
+        </TouchableOpacity> */}
+
+          <TouchableOpacity
+            className="absolute bottom-10 p-4 self-center rounded-full bg-blue-500"
+            onPress={() => setOpenProgress(openProgress > 0 ? 0 : 1)}
+          >
+            <Text className="text-white font-bold">
+              {openProgress > 0.5 ? "Close Door" : "Open Door"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </GestureDetector>
+    </>
   );
 }
