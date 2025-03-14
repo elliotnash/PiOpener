@@ -58,6 +58,8 @@ jobs:
         run: rustup target add $TARGET
       - name: Run build
         run: cargo build --release --verbose --target $TARGET --features raspberry_pi
+      - name: List release
+        run: ls ./target
       - name: Archive artifact
         uses: actions/upload-artifact@v4
         with:
