@@ -141,7 +141,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         door_state_tx,
         app_state.latest_command.clone(),
         poll_interval,
-        expected_shut_time + shut_time_buffer,
+        expected_shut_time,
     );
 
     let app = Router::new()
@@ -220,14 +220,21 @@ fn monitor_gpio<I1, I2, O>(
                         DoorStatus::Closed => DoorState {
                             status: DoorStatus::MovingUp,
                             setpoint: last_state.setpoint,
-                            position: last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64()),
+                            position: (last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64())).clamp(0_f64, 1_f64),
                         },
                         DoorStatus::Open => DoorState {
                             status: DoorStatus::MovingDown,
                             setpoint: last_state.setpoint,
-                            position: last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64()),
+                            position: (last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64())).clamp(0_f64, 1_f64),
                         },
-                        _ => last_state,
+                        DoorStatus::MovingUp | DoorStatus::MovingDown => DoorState {
+                            status: last_state.status,
+                            setpoint: last_state.setpoint,
+                            position: (last_state.position + last_direction * (now.duration_since(last_time).as_secs_f64() / expected_shut_time.as_secs_f64())).clamp(0_f64, 1_f64),
+                        },
+                        _ => {
+                            last_state
+                        },
                     }
                 }
             };
