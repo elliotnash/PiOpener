@@ -1,4 +1,4 @@
-import { useState, useRef, Suspense } from "react";
+import { useState, useRef, Suspense, useEffect, useCallback } from "react";
 import { Canvas } from "@react-three/fiber/native";
 import { useSpring, animated } from "@react-spring/three";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,12 @@ import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { useColorScheme } from "~/lib/useColorScheme";
 import { Link, Stack } from "expo-router";
 import { useTheme } from "@react-navigation/native";
+import { useStatus } from "~/store/status";
+import {
+  closeDoorAction,
+  openDoorAction,
+  toggleDoorAction,
+} from "~/actions/door";
 
 const panelPositions = [
   [0, -0.75, 0],
@@ -126,7 +132,10 @@ const AnimatedGarageDoorFrame = ({
   );
 };
 
-const Scene = ({ openProgress }: { openProgress: number }) => {
+const Scene = ({
+  setpointProgress,
+  openProgress,
+}: { setpointProgress: number; openProgress: number }) => {
   return (
     <>
       <ambientLight intensity={0.75} />
@@ -139,17 +148,49 @@ const Scene = ({ openProgress }: { openProgress: number }) => {
         <meshStandardMaterial color="#555" roughness={0.4} metalness={0.2} />
       </mesh>
 
-      <AnimatedGarageDoor openProgress={0} />
-      <AnimatedGarageDoorFrame openProgress={openProgress} />
+      <AnimatedGarageDoor openProgress={openProgress} />
+      <AnimatedGarageDoorFrame openProgress={setpointProgress} />
     </>
   );
 };
 
 export default function IndexPage() {
-  const [openProgress, setOpenProgress] = useState(0);
+  const [setpointProgress, setSetpointProgress] = useState(0);
   const startYRef = useRef(0);
   const startProgressRef = useRef(0);
+  const isGesturing = useRef(false);
   const { height } = Dimensions.get("window");
+
+  const { status } = useStatus();
+
+  useEffect(() => {
+    console.log("Set point changed!", status?.setpoint);
+    if (!isGesturing.current) {
+      if (status?.setpoint === "open") {
+        setSetpointProgress(1);
+      } else if (status?.setpoint === "closed") {
+        setSetpointProgress(0);
+      } else if (status?.setpoint === "ajar") {
+        console.log("Setting it to ", status?.position);
+        setSetpointProgress(status?.position ?? 0.5);
+      }
+    }
+  }, [status?.setpoint]);
+
+  const openDoor = useCallback(() => {
+    openDoorAction();
+    setSetpointProgress(1);
+  }, []);
+
+  const closeDoor = useCallback(() => {
+    closeDoorAction();
+    setSetpointProgress(0);
+  }, []);
+
+  const toggleDoor = useCallback(() => {
+    toggleDoorAction();
+    setSetpointProgress(status?.position ?? 0.5);
+  }, []);
 
   // Define drag gesture
   const dragGesture = Gesture.Pan()
@@ -158,7 +199,8 @@ export default function IndexPage() {
     .onBegin((event) => {
       startYRef.current = event.absoluteY;
       // Store the current progress when beginning the drag
-      startProgressRef.current = openProgress;
+      startProgressRef.current = setpointProgress;
+      isGesturing.current = true;
     })
     .onUpdate((event) => {
       // Calculate how far the finger has moved as a percentage of screen height
@@ -168,7 +210,7 @@ export default function IndexPage() {
         0,
         Math.min(1, startProgressRef.current + dragDistance / (height * 0.3)),
       );
-      setOpenProgress(newProgress);
+      setSetpointProgress(newProgress);
     })
     .onEnd((event) => {
       // Calculate how far the finger has moved as a percentage of screen height
@@ -178,13 +220,37 @@ export default function IndexPage() {
         0,
         Math.min(1, startProgressRef.current + dragDistance / (height * 0.3)),
       );
-      // Snap to fully open or closed based on current progress
-      if (newProgress > 0.5) {
-        setOpenProgress(1);
+
+      // Snap to closest complete state
+      const distToZero = newProgress;
+      const distToOne = 1 - newProgress;
+      const distToSetpoint = Math.abs(startProgressRef.current - newProgress);
+
+      const minDist = Math.min(distToZero, distToOne, distToSetpoint);
+
+      if (minDist === distToZero) {
+        closeDoor();
+      } else if (minDist === distToOne) {
+        openDoor();
       } else {
-        setOpenProgress(0);
+        setSetpointProgress(startProgressRef.current);
       }
+
+      isGesturing.current = false;
     });
+
+  const tapGesture = Gesture.Tap()
+    .runOnJS(true)
+    .maxDuration(250)
+    .maxDistance(10)
+    .requireExternalGestureToFail(dragGesture)
+    .onStart(() => {
+      console.log("Tapped!!!");
+      isGesturing.current = false;
+      toggleDoor();
+    });
+
+  const combinedGesture = Gesture.Exclusive(dragGesture, tapGesture);
 
   const theme = useTheme();
 
@@ -209,7 +275,7 @@ export default function IndexPage() {
           ),
         }}
       />
-      <GestureDetector gesture={dragGesture}>
+      <GestureDetector gesture={combinedGesture}>
         <View className="flex-1">
           <Canvas
             camera={{ position: [1, 2, 8], fov: 50 }}
@@ -217,17 +283,26 @@ export default function IndexPage() {
             pointerEvents="none"
           >
             <Suspense>
-              <Scene openProgress={openProgress} />
+              <Scene
+                openProgress={status?.position ?? 0}
+                setpointProgress={setpointProgress}
+              />
             </Suspense>
           </Canvas>
 
           <SafeAreaView>
             <TouchableOpacity
               className="m-4 p-4 self-center rounded-full bg-blue-500"
-              onPress={() => setOpenProgress(openProgress > 0 ? 0 : 1)}
+              onPress={() => {
+                if (setpointProgress > 0.5) {
+                  closeDoor();
+                } else {
+                  openDoor();
+                }
+              }}
             >
               <Text className="text-white font-bold">
-                {openProgress > 0.5 ? "Close Door" : "Open Door"}
+                {setpointProgress > 0.5 ? "Close Door" : "Open Door"}
               </Text>
             </TouchableOpacity>
           </SafeAreaView>
