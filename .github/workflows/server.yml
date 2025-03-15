@@ -62,4 +62,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server
-          path: ./server/target/${{env.TARGET}}/release/server
+          path: ./server/target/${{env.TARGET}}/release/server 

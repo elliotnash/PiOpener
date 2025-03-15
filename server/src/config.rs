@@ -15,6 +15,7 @@ pub struct GarageDoorConfig {
     pub shut_time_buffer_sec: u64,
     pub coupler_active_intervals: u64,
     pub coupler_rest_intervals: u64,
+    pub limit_cooldown_ms: u64,
     pub server_address: String,
     pub api_key: String,
 }

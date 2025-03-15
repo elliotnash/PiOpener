@@ -113,6 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let poll_interval = Duration::from_millis(config.garage_door.poll_interval_ms);
     let expected_shut_time = Duration::from_secs(config.garage_door.expected_shut_time_sec);
     let shut_time_buffer = Duration::from_secs(config.garage_door.shut_time_buffer_sec);
+    let limit_cooldown = Duration::from_millis(config.garage_door.limit_cooldown_ms);
 
     // Initialize GPIO components with config values
     let (close_limit_switch, open_limit_switch, coupler) = gpio::create_pins(
@@ -144,6 +145,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         expected_shut_time,
         config.garage_door.coupler_active_intervals,
         config.garage_door.coupler_rest_intervals,
+        limit_cooldown,
     );
 
     let app = Router::new()
@@ -173,6 +175,7 @@ fn monitor_gpio<I1, I2, O>(
     expected_shut_time: Duration,
     coupler_active_intervals: u64,
     coupler_rest_intervals: u64,
+    limit_cooldown: Duration,
 ) where
     I1: InputPin + Send + 'static,
     I2: InputPin + Send + 'static,
@@ -201,6 +204,9 @@ fn monitor_gpio<I1, I2, O>(
         let mut last_time = Instant::now();
 
         let mut coupler_queue: VecDeque<PinState> = VecDeque::with_capacity(10);
+
+        let mut last_full_close = Instant::now();
+        let mut last_full_open = Instant::now();
 
         fn toggle_coupler(queue: &mut VecDeque<PinState>, queue_intervals: u64) {
             for _ in 0..queue_intervals {
@@ -232,7 +238,7 @@ fn monitor_gpio<I1, I2, O>(
                     }
                 },
                 (true, false) => {
-                    if last_state.status == DoorStatus::MovingUp {
+                    if now.duration_since(last_full_open) < limit_cooldown {
                         last_state
                     } else {
                         last_direction = -1_f64;
@@ -244,7 +250,7 @@ fn monitor_gpio<I1, I2, O>(
                     }  
                 },
                 (false, true) => {
-                    if last_state.status == DoorStatus::MovingDown {
+                    if now.duration_since(last_full_close) < limit_cooldown {
                         last_state
                     } else {
                         last_direction = 1_f64;
@@ -289,6 +295,7 @@ fn monitor_gpio<I1, I2, O>(
                         // We will invert setpoint. If stopped, we will use the direction opposite the last direction.
                         new_state = match new_state.status {
                             DoorStatus::Closed => {
+                                last_full_open = now;
                                 last_direction = 1_f64;
                                 DoorState {
                                     status: DoorStatus::MovingUp,
@@ -297,6 +304,7 @@ fn monitor_gpio<I1, I2, O>(
                                 }
                             },
                             DoorStatus::Open => {
+                                last_full_close = now;
                                 last_direction = -1_f64;
                                 DoorState {
                                     status: DoorStatus::MovingDown,
@@ -334,7 +342,6 @@ fn monitor_gpio<I1, I2, O>(
                                 rest_coupler(&mut coupler_queue, coupler_rest_intervals);
                                 toggle_coupler(&mut coupler_queue, coupler_active_intervals);
 
-                                last_direction = 1_f64;
                                 DoorState {
                                     status: DoorStatus::MovingUp,
                                     setpoint: DoorSetpoint::Open,
@@ -358,6 +365,7 @@ fn monitor_gpio<I1, I2, O>(
                                 }
                             },
                             DoorStatus::Closed => {
+                                last_full_open = now;
                                 toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 DoorState {
                                     status: DoorStatus::MovingUp,
@@ -370,7 +378,9 @@ fn monitor_gpio<I1, I2, O>(
                                 setpoint: DoorSetpoint::Open,
                                 position: new_state.position,
                             }
-                        }
+                        };
+                        // In all cases, we are now moving up (hopefully)
+                        last_direction = 1_f64;
                     },
                     GpioCommand::Close => {
                         // If command is close then we need to decide if we need 0, 1, 2, or 3 clicks
@@ -380,7 +390,6 @@ fn monitor_gpio<I1, I2, O>(
                                 rest_coupler(&mut coupler_queue, coupler_rest_intervals);
                                 toggle_coupler(&mut coupler_queue, coupler_active_intervals);
 
-                                last_direction = -1_f64;
                                 DoorState {
                                     status: DoorStatus::MovingDown,
                                     setpoint: DoorSetpoint::Closed,
@@ -404,6 +413,7 @@ fn monitor_gpio<I1, I2, O>(
                                 }
                             },
                             DoorStatus::Open => {
+                                last_full_close = now;
                                 toggle_coupler(&mut coupler_queue, coupler_active_intervals);
                                 DoorState {
                                     status: DoorStatus::MovingDown,
@@ -416,7 +426,9 @@ fn monitor_gpio<I1, I2, O>(
                                 setpoint: DoorSetpoint::Closed,
                                 position: new_state.position,
                             }
-                        }
+                        };
+                        // In all cases we should be moving down
+                        last_direction = -1_f64;
                     }
                 }
             }
