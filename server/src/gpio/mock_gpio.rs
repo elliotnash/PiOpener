@@ -189,8 +189,8 @@ pub fn create_pins(_close_pin: u8, _open_pin: u8, _coupler_pin: u8, poll_interva
 
             // Update limit switches based on door position
             // LOW (false) when pressed, HIGH (true) when not pressed
-            close_pin_ref.set_state(pos > 0.0);  // Close switch pressed (LOW) only when fully closed
-            open_pin_ref.set_state(pos < 1.0);   // Open switch pressed (LOW) only when fully open
+            close_pin_ref.set_state(pos > 0.01);  // Close switch pressed (LOW) only when fully closed
+            open_pin_ref.set_state(pos < 0.99);   // Open switch pressed (LOW) only when fully open
             
             thread::sleep(poll_interval);
         }
