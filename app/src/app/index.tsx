@@ -196,7 +196,9 @@ export default function IndexPage() {
           headerShadowVisible: false,
           headerRight: () => (
             <Link href="/settings" asChild>
-              <TouchableOpacity className="mr-0 bg-foreground/10 p-2 rounded-full">
+              <TouchableOpacity
+                className={`bg-foreground/10 p-2 rounded-full ${Platform.OS === "web" ? "mr-4" : ""}`}
+              >
                 <Ionicons
                   name="settings-outline"
                   size={24}

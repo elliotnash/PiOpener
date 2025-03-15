@@ -8,7 +8,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "org.elliotnash.garage"
+      "bundleIdentifier": "org.elliotnash.garage",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "scheme": "org.elliotnash.garage",
     "android": {
@@ -24,13 +27,19 @@
     "experiments": {
       "typedRoutes": true
     },
-    "assetBundlePatterns": ["assets/**/*"],
+    "assetBundlePatterns": [
+      "assets/**/*"
+    ],
     "plugins": [
       "expo-router",
+      "expo-secure-store",
       [
         "expo-asset",
         {
-          "extensions": ["glb", "gltf"]
+          "extensions": [
+            "glb",
+            "gltf"
+          ]
         }
       ],
       [
