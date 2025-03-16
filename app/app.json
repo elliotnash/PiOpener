@@ -4,19 +4,21 @@
     "slug": "garage",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icons/adaptive-icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "org.elliotnash.garage",
       "config": {
         "usesNonExemptEncryption": false
-      }
+      },
+      "icon": "./assets/icons/ios-light.png"
     },
     "scheme": "org.elliotnash.garage",
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icons/adaptive-icon.png",
+        "monochromeImage": "./assets/icons/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "org.elliotnash.garage"
@@ -27,34 +29,39 @@
     "experiments": {
       "typedRoutes": true
     },
-    "assetBundlePatterns": [
-      "assets/**/*"
-    ],
+    "assetBundlePatterns": ["assets/**/*"],
     "plugins": [
       "expo-router",
       "expo-secure-store",
       [
         "expo-asset",
         {
-          "extensions": [
-            "glb",
-            "gltf"
-          ]
+          "extensions": ["glb", "gltf"]
         }
       ],
       [
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
+          "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
           "dark": {
             "image": "./assets/splash.png",
+            "imageWidth": 200,
             "resizeMode": "contain",
             "backgroundColor": "#000000"
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "569f7430-2e22-4a42-8672-bc43f6f93ed9"
+      }
+    }
   }
 }
