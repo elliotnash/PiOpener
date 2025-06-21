@@ -10,6 +10,7 @@ pub struct GarageDoorConfig {
     pub close_limit_pin: u8,
     pub open_limit_pin: u8,
     pub coupler_pin: u8,
+    pub coupler_active_low: bool,
     pub poll_interval_ms: u64,
     pub expected_shut_time_sec: u64,
     pub shut_time_buffer_sec: u64,

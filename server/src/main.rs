@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Convert config durations
     let poll_interval = Duration::from_millis(config.garage_door.poll_interval_ms);
     let expected_shut_time = Duration::from_secs(config.garage_door.expected_shut_time_sec);
-    let shut_time_buffer = Duration::from_secs(config.garage_door.shut_time_buffer_sec);
+    let _shut_time_buffer = Duration::from_secs(config.garage_door.shut_time_buffer_sec);
     let limit_cooldown = Duration::from_millis(config.garage_door.limit_cooldown_ms);
 
     // Initialize GPIO components with config values
@@ -143,6 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app_state.latest_command.clone(),
         poll_interval,
         expected_shut_time,
+        config.garage_door.coupler_active_low,
         config.garage_door.coupler_active_intervals,
         config.garage_door.coupler_rest_intervals,
         limit_cooldown,
@@ -173,6 +174,7 @@ fn monitor_gpio<I1, I2, O>(
     latest_command: Arc<Mutex<Option<GpioCommand>>>,
     poll_interval: Duration,
     expected_shut_time: Duration,
+    coupler_active_low: bool,
     coupler_active_intervals: u64,
     coupler_rest_intervals: u64,
     limit_cooldown: Duration,
@@ -208,20 +210,32 @@ fn monitor_gpio<I1, I2, O>(
         let mut last_full_close = Instant::now();
         let mut last_full_open = Instant::now();
 
-        fn toggle_coupler(queue: &mut VecDeque<PinState>, queue_intervals: u64) {
-            for _ in 0..queue_intervals {
-                queue.push_back(PinState::High);
-            }
-            for _ in 0..queue_intervals {
-                queue.push_back(PinState::Low);
-            }
-        }
+        let start_state = if coupler_active_low {
+            PinState::Low
+        } else {
+            PinState::High
+        };
 
-        fn rest_coupler(queue: &mut VecDeque<PinState>, rest_intervals: u64) {
-            for _ in 0..rest_intervals {
-                queue.push_back(PinState::Low);
+        let end_state = if coupler_active_low {
+            PinState::High
+        } else {
+            PinState::Low
+        };
+
+        let toggle_coupler = |queue: &mut VecDeque<PinState>, queue_intervals: u64| {
+            for _ in 0..queue_intervals {
+                queue.push_back(start_state);
             }
-        }
+            for _ in 0..queue_intervals {
+                queue.push_back(end_state);
+            }
+        };
+
+        let rest_coupler = |queue: &mut VecDeque<PinState>, rest_intervals: u64| {
+            for _ in 0..rest_intervals {
+                queue.push_back(end_state);
+            }
+        };
 
         loop {
             // Update door state with timing consideration

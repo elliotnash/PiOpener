@@ -2,6 +2,7 @@
 close_limit_pin = 23
 open_limit_pin = 24
 coupler_pin = 25
+coupler_active_low = true
 poll_interval_ms = 50
 expected_shut_time_sec = 15
 shut_time_buffer_sec = 3
