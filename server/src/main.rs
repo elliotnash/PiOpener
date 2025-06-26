@@ -449,7 +449,6 @@ fn monitor_gpio<I1, I2, O>(
 
              // Toggle coupler if requested
              if let Some(pin_state) = coupler_queue.pop_front() {
-                println!("Setting coupler to {:?}", pin_state);
                 let _ = coupler.set_state(pin_state);
             }
 
